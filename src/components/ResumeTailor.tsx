@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
@@ -12,15 +13,22 @@ export default function ResumeTailor() {
   const [isUploading, setIsUploading] = useState(false);
   const [jobDescription, setJobDescription] = useState("");
   const [isDragging, setIsDragging] = useState(false);
-  const [hasGenerated, setHasGenerated] = useState(false);
+  const [generatedResume, setGeneratedResume] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const resetGeneration = useCallback(() => {
+    setGeneratedResume(null);
+    setGenerateError(null);
+  }, []);
 
   const resetUploadState = useCallback(() => {
     setUploadSuccess(null);
     setUploadError(null);
     setExtractedText("");
-    setHasGenerated(false);
-  }, []);
+    resetGeneration();
+  }, [resetGeneration]);
 
   const acceptResume = useCallback(
     async (file: File | null) => {
@@ -97,12 +105,49 @@ export default function ResumeTailor() {
     [acceptResume],
   );
 
-  const handleGenerate = () => {
-    if (!extractedText || !jobDescription.trim()) return;
-    setHasGenerated(true);
+  const handleGenerate = async () => {
+    if (!extractedText || !jobDescription.trim() || isGenerating) return;
+
+    setIsGenerating(true);
+    resetGeneration();
+
+    try {
+      const response = await fetch("/api/generate-resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resumeText: extractedText,
+          jobDescription: jobDescription.trim(),
+        }),
+      });
+
+      const data = (await response.json()) as {
+        resume?: string;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to generate tailored resume.");
+      }
+
+      if (!data.resume) {
+        throw new Error("No resume content was returned.");
+      }
+
+      setGeneratedResume(data.resume);
+    } catch (error) {
+      setGenerateError(
+        error instanceof Error
+          ? error.message
+          : "Failed to generate tailored resume.",
+      );
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
-  const canGenerate = Boolean(extractedText && jobDescription.trim());
+  const canGenerate =
+    Boolean(extractedText && jobDescription.trim()) && !isGenerating;
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 lg:px-8 lg:py-16">
@@ -236,7 +281,7 @@ export default function ResumeTailor() {
               value={jobDescription}
               onChange={(event) => {
                 setJobDescription(event.target.value);
-                setHasGenerated(false);
+                resetGeneration();
               }}
               placeholder="Paste the full job description here — responsibilities, requirements, and preferred qualifications..."
               className="w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-relaxed text-slate-900 shadow-sm outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 sm:text-base"
@@ -245,17 +290,26 @@ export default function ResumeTailor() {
 
           <button
             type="button"
-            onClick={handleGenerate}
+            onClick={() => void handleGenerate()}
             disabled={!canGenerate}
             className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none sm:text-base"
           >
-            <SparkleIcon />
-            Generate tailored resume
+            {isGenerating ? <SpinnerIcon /> : <SparkleIcon />}
+            {isGenerating ? "Generating…" : "Generate tailored resume"}
           </button>
 
-          {!canGenerate && (
+          {!canGenerate && !isGenerating && (
             <p className="text-center text-sm text-slate-500">
               Upload a PDF resume and add a job description to continue.
+            </p>
+          )}
+
+          {generateError && (
+            <p
+              role="alert"
+              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+            >
+              {generateError}
             </p>
           )}
         </section>
@@ -265,17 +319,29 @@ export default function ResumeTailor() {
             <h2 className="text-sm font-semibold text-slate-900">
               Generated resume
             </h2>
-            {hasGenerated && (
+            {generatedResume && (
               <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                Preview
+                Ready
               </span>
             )}
           </div>
 
           <div className="min-h-[520px] rounded-2xl border border-slate-200 bg-white shadow-sm">
-            {hasGenerated ? (
-              <div className="flex h-full flex-col p-6 sm:p-8">
-                <div className="mb-6 border-b border-slate-100 pb-6">
+            {isGenerating ? (
+              <div className="flex h-full min-h-[520px] flex-col items-center justify-center px-6 text-center">
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-100 text-indigo-600">
+                  <SpinnerIcon />
+                </div>
+                <p className="font-medium text-slate-900">
+                  Generating tailored resume…
+                </p>
+                <p className="mt-2 max-w-xs text-sm text-slate-500">
+                  Gemini is aligning your resume with the job description.
+                </p>
+              </div>
+            ) : generatedResume ? (
+              <div className="flex h-full max-h-[720px] flex-col overflow-hidden">
+                <div className="border-b border-slate-100 px-6 py-4 sm:px-8">
                   <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
                     Tailored for
                   </p>
@@ -284,30 +350,8 @@ export default function ResumeTailor() {
                     {jobDescription.length > 120 ? "…" : ""}
                   </p>
                 </div>
-
-                <div className="space-y-5 text-sm text-slate-700">
-                  <div className="animate-pulse space-y-3">
-                    <div className="h-4 w-1/3 rounded bg-slate-200" />
-                    <div className="h-3 w-full rounded bg-slate-100" />
-                    <div className="h-3 w-5/6 rounded bg-slate-100" />
-                  </div>
-
-                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-5 text-center">
-                    <p className="font-medium text-slate-900">
-                      Your tailored resume will appear here
-                    </p>
-                    <p className="mt-2 text-sm text-slate-500">
-                      AI generation coming soon. Your resume text has been
-                      extracted and is ready.
-                    </p>
-                  </div>
-
-                  <div className="space-y-2 opacity-60">
-                    <div className="h-3 w-1/4 rounded bg-slate-200" />
-                    <div className="h-3 w-full rounded bg-slate-100" />
-                    <div className="h-3 w-11/12 rounded bg-slate-100" />
-                    <div className="h-3 w-4/5 rounded bg-slate-100" />
-                  </div>
+                <div className="resume-markdown overflow-y-auto px-6 py-5 sm:px-8 sm:py-6">
+                  <ReactMarkdown>{generatedResume}</ReactMarkdown>
                 </div>
               </div>
             ) : (
