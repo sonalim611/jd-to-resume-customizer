@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Resume Tailor",
+  title: "ResumeFit",
   description:
     "Upload your resume, paste a job description, and generate a tailored resume that matches the role.",
 };

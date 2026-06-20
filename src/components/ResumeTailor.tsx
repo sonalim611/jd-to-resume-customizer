@@ -2,35 +2,107 @@
 
 import { useCallback, useRef, useState } from "react";
 
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
 export default function ResumeTailor() {
   const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [extractedText, setExtractedText] = useState("");
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [jobDescription, setJobDescription] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [hasGenerated, setHasGenerated] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const acceptResume = useCallback((file: File | null) => {
-    if (!file) return;
-    setResumeFile(file);
+  const resetUploadState = useCallback(() => {
+    setUploadSuccess(null);
+    setUploadError(null);
+    setExtractedText("");
     setHasGenerated(false);
   }, []);
+
+  const acceptResume = useCallback(
+    async (file: File | null) => {
+      if (!file) return;
+
+      resetUploadState();
+
+      const isPdf =
+        file.type === "application/pdf" ||
+        file.name.toLowerCase().endsWith(".pdf");
+
+      if (!isPdf) {
+        setUploadError("Only PDF files are accepted.");
+        return;
+      }
+
+      if (file.size > MAX_FILE_SIZE) {
+        setUploadError("File size must be 5 MB or less.");
+        return;
+      }
+
+      setResumeFile(file);
+      setIsUploading(true);
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch("/api/extract-resume", {
+          method: "POST",
+          body: formData,
+        });
+
+        const data = (await response.json()) as {
+          text?: string;
+          pages?: number;
+          error?: string;
+        };
+
+        if (!response.ok) {
+          throw new Error(data.error ?? "Failed to upload resume.");
+        }
+
+        if (!data.text) {
+          throw new Error("No text could be extracted from this PDF.");
+        }
+
+        setExtractedText(data.text);
+        setUploadSuccess(
+          `Resume uploaded successfully — extracted text from ${data.pages ?? 1} page${data.pages === 1 ? "" : "s"}.`,
+        );
+      } catch (error) {
+        setResumeFile(null);
+        setUploadError(
+          error instanceof Error ? error.message : "Failed to upload resume.",
+        );
+      } finally {
+        setIsUploading(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      }
+    },
+    [resetUploadState],
+  );
 
   const handleDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault();
       setIsDragging(false);
       const file = event.dataTransfer.files[0];
-      if (file) acceptResume(file);
+      if (file) void acceptResume(file);
     },
     [acceptResume],
   );
 
   const handleGenerate = () => {
-    if (!resumeFile || !jobDescription.trim()) return;
+    if (!extractedText || !jobDescription.trim()) return;
     setHasGenerated(true);
   };
 
-  const canGenerate = Boolean(resumeFile && jobDescription.trim());
+  const canGenerate = Boolean(extractedText && jobDescription.trim());
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 lg:px-8 lg:py-16">
@@ -57,8 +129,10 @@ export default function ResumeTailor() {
             <div
               role="button"
               tabIndex={0}
-              onClick={() => fileInputRef.current?.click()}
+              aria-busy={isUploading}
+              onClick={() => !isUploading && fileInputRef.current?.click()}
               onKeyDown={(event) => {
+                if (isUploading) return;
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   fileInputRef.current?.click();
@@ -66,32 +140,49 @@ export default function ResumeTailor() {
               }}
               onDragOver={(event) => {
                 event.preventDefault();
-                setIsDragging(true);
+                if (!isUploading) setIsDragging(true);
               }}
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
-              className={`group relative flex min-h-[180px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-all ${
+              className={`group relative flex min-h-[180px] flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-all ${
+                isUploading
+                  ? "cursor-wait border-indigo-300 bg-indigo-50/50"
+                  : "cursor-pointer"
+              } ${
                 isDragging
                   ? "border-indigo-500 bg-indigo-50"
-                  : resumeFile
+                  : uploadSuccess
                     ? "border-emerald-300 bg-emerald-50/50"
-                    : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-slate-50"
+                    : uploadError
+                      ? "border-red-300 bg-red-50/50"
+                      : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-slate-50"
               }`}
             >
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.doc,.docx,.txt"
+                accept="application/pdf,.pdf"
                 className="hidden"
+                disabled={isUploading}
                 onChange={(event) =>
-                  acceptResume(event.target.files?.[0] ?? null)
+                  void acceptResume(event.target.files?.[0] ?? null)
                 }
               />
 
-              {resumeFile ? (
+              {isUploading ? (
+                <>
+                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600">
+                    <SpinnerIcon />
+                  </div>
+                  <p className="font-medium text-slate-900">Extracting text…</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Processing your PDF resume
+                  </p>
+                </>
+              ) : resumeFile && uploadSuccess ? (
                 <>
                   <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
-                    <FileIcon />
+                    <CheckIcon />
                   </div>
                   <p className="font-medium text-slate-900">{resumeFile.name}</p>
                   <p className="mt-1 text-sm text-slate-500">
@@ -107,11 +198,29 @@ export default function ResumeTailor() {
                     Drop your resume here
                   </p>
                   <p className="mt-1 text-sm text-slate-500">
-                    or click to browse · PDF, DOC, DOCX, TXT
+                    or click to browse · PDF only · Max 5 MB
                   </p>
                 </>
               )}
             </div>
+
+            {uploadSuccess && (
+              <p
+                role="status"
+                className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+              >
+                {uploadSuccess}
+              </p>
+            )}
+
+            {uploadError && (
+              <p
+                role="alert"
+                className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+              >
+                {uploadError}
+              </p>
+            )}
           </div>
 
           <div>
@@ -146,7 +255,7 @@ export default function ResumeTailor() {
 
           {!canGenerate && (
             <p className="text-center text-sm text-slate-500">
-              Upload a resume and add a job description to continue.
+              Upload a PDF resume and add a job description to continue.
             </p>
           )}
         </section>
@@ -188,8 +297,8 @@ export default function ResumeTailor() {
                       Your tailored resume will appear here
                     </p>
                     <p className="mt-2 text-sm text-slate-500">
-                      Backend integration coming soon. This preview confirms
-                      your inputs are ready.
+                      AI generation coming soon. Your resume text has been
+                      extracted and is ready.
                     </p>
                   </div>
 
@@ -242,7 +351,7 @@ function UploadIcon() {
   );
 }
 
-function FileIcon() {
+function CheckIcon() {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -255,8 +364,25 @@ function FileIcon() {
       className="h-6 w-6"
       aria-hidden="true"
     >
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-6 w-6 animate-spin"
+      aria-hidden="true"
+    >
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
     </svg>
   );
 }
