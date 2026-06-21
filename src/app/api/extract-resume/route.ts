@@ -1,12 +1,11 @@
-import { PDFParse } from "pdf-parse";
+import { extractPdfText } from "@/lib/extractPdfText";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 export async function POST(request: Request) {
-  let parser: PDFParse | null = null;
-
   try {
     const formData = await request.formData();
     const file = formData.get("file");
@@ -30,19 +29,18 @@ export async function POST(request: Request) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    parser = new PDFParse({ data: buffer });
-    const result = await parser.getText();
+    const result = await extractPdfText(buffer);
 
     return Response.json({
-      text: result.text.trim(),
-      pages: result.total,
+      text: result.text,
+      pages: result.pages,
     });
-  } catch {
+  } catch (error) {
+    console.error("extract-resume failed:", error);
+
     return Response.json(
       { error: "Failed to extract text from the PDF." },
       { status: 500 },
     );
-  } finally {
-    await parser?.destroy();
   }
 }

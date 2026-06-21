@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { parseApiResponse } from "@/lib/parseApiResponse";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
@@ -65,11 +66,11 @@ export default function ResumeTailor() {
           body: formData,
         });
 
-        const data = (await response.json()) as {
+        const data = await parseApiResponse<{
           text?: string;
           pages?: number;
           error?: string;
-        };
+        }>(response);
 
         if (!response.ok) {
           throw new Error(data.error ?? "Failed to upload resume.");
@@ -124,10 +125,10 @@ export default function ResumeTailor() {
         }),
       });
 
-      const data = (await response.json()) as {
+      const data = await parseApiResponse<{
         resume?: string;
         error?: string;
-      };
+      }>(response);
 
       if (!response.ok) {
         throw new Error(data.error ?? "Failed to generate tailored resume.");
