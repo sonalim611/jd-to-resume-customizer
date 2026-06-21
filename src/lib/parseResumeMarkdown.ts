@@ -19,12 +19,29 @@ function partsFromInlineTokens(tokens: Token[] | undefined): InlinePart[] {
   const parts: InlinePart[] = [];
 
   for (const token of tokens) {
-    if (token.type === "text") {
-      parts.push({ text: token.text });
+    if (token.type === "paragraph") {
+      parts.push(...partsFromInlineTokens(token.tokens));
+    } else if (token.type === "text") {
+      const nested =
+        "tokens" in token &&
+        Array.isArray(token.tokens) &&
+        token.tokens.length > 0;
+
+      if (nested) {
+        parts.push(...partsFromInlineTokens(token.tokens));
+      } else {
+        parts.push({ text: token.text });
+      }
     } else if (token.type === "strong") {
       parts.push({ text: token.text, bold: true });
     } else if (token.type === "em") {
       parts.push({ text: token.text });
+    } else if (
+      "tokens" in token &&
+      Array.isArray(token.tokens) &&
+      token.tokens.length > 0
+    ) {
+      parts.push(...partsFromInlineTokens(token.tokens));
     } else if ("text" in token && typeof token.text === "string") {
       parts.push({ text: token.text });
     }
