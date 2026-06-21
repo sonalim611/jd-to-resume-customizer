@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@react-pdf/renderer": "^4.5.1",
+    "marked": "^18.0.5",
     "next": "^15.5.19",
     "pdf-parse": "^2.4.5",
     "react": "19.2.4",

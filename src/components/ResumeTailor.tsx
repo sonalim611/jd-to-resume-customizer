@@ -16,11 +16,14 @@ export default function ResumeTailor() {
   const [generatedResume, setGeneratedResume] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const resetGeneration = useCallback(() => {
     setGeneratedResume(null);
     setGenerateError(null);
+    setPdfError(null);
   }, []);
 
   const resetUploadState = useCallback(() => {
@@ -148,6 +151,22 @@ export default function ResumeTailor() {
 
   const canGenerate =
     Boolean(extractedText && jobDescription.trim()) && !isGenerating;
+
+  const handleDownloadPdf = async () => {
+    if (!generatedResume || isDownloadingPdf) return;
+
+    setIsDownloadingPdf(true);
+    setPdfError(null);
+
+    try {
+      const { downloadResumePdf } = await import("@/lib/downloadResumePdf");
+      await downloadResumePdf(generatedResume);
+    } catch {
+      setPdfError("Failed to generate PDF. Please try again.");
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 lg:px-8 lg:py-16">
@@ -315,16 +334,42 @@ export default function ResumeTailor() {
         </section>
 
         <section>
-          <div className="mb-2 flex items-center justify-between">
+          <div className="mb-2 flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-slate-900">
               Generated resume
             </h2>
-            {generatedResume && (
-              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                Ready
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {generatedResume && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadPdf()}
+                    disabled={isDownloadingPdf}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isDownloadingPdf ? (
+                      <SpinnerIcon />
+                    ) : (
+                      <DownloadIcon />
+                    )}
+                    {isDownloadingPdf ? "Preparing…" : "Download PDF"}
+                  </button>
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                    Ready
+                  </span>
+                </>
+              )}
+            </div>
           </div>
+
+          {pdfError && (
+            <p
+              role="alert"
+              className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+            >
+              {pdfError}
+            </p>
+          )}
 
           <div className="min-h-[520px] rounded-2xl border border-slate-200 bg-white shadow-sm">
             {isGenerating ? (
@@ -445,6 +490,26 @@ function SparkleIcon() {
       aria-hidden="true"
     >
       <path d="m12 3 1.9 5.8H20l-4.8 3.5 1.9 5.8L12 14.6l-5.1 3.7 1.9-5.8L4 8.8h6.1L12 3z" />
+    </svg>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+      aria-hidden="true"
+    >
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" x2="12" y1="15" y2="3" />
     </svg>
   );
 }
